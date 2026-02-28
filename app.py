@@ -23,39 +23,37 @@ def calculate_rating(rsi, ratio):
     """
     【核心逻辑】综合 RSI 和 动量-波动率比率 进行评级
     特别优化：严防超卖区的"接飞刀"风险
-    返回: (评级等级, 评级描述, 颜色代码)
     """
     if pd.isna(rsi) or pd.isna(ratio):
         return "数据不足", "数据尚不充分", "#808080"
     
     # --- 1. 超卖区域判断 (RSI < 30) ---
-    # 风险最高区，必须严格过滤
     if rsi < 30:
         if ratio > 0:
-            return "E+ (黄金坑)", "超卖且动能已转正，极佳抄底点", "#9370DB" # 紫色
+            return "E+ (黄金坑)", "超卖且动能已转正，极佳抄底点", "#9370DB"
         elif ratio > -0.2:
-            return "E (企稳观察)", "超卖且跌势放缓，可小仓试错", "#1E90FF" # 蓝色
+            return "E (企稳观察)", "超卖且跌势放缓，可小仓试错", "#1E90FF"
         elif ratio > -0.5:
-            return "E- (阴跌中)", "超卖但仍在持续阴跌，谨慎观望", "#FFA500" # 橙色警告
+            return "E- (阴跌中)", "超卖但仍在持续阴跌，谨慎观望", "#FFA500"
         else:
-            return "E-- (接飞刀)", "超卖且剧烈暴跌，切勿伸手！", "#8B0000" # 深红危险
+            return "E-- (接飞刀)", "超卖且剧烈暴跌，切勿伸手！", "#8B0000"
     
     # --- 2. 超买区域判断 (RSI > 70) ---
     if rsi > 70:
         if ratio > 1.0:
-            return "C (疯狂逼空)", "超买但走势极强，可能继续疯涨", "#FFA500" # 橙色
+            return "C (疯狂逼空)", "超买但走势极强，可能继续疯涨", "#FFA500"
         else:
-            return "B (高风险)", "超买且波动剧烈，警惕诱多/回调", "#FF4444" # 红色
+            return "B (高风险)", "超买且波动剧烈，警惕诱多/回调", "#FF4444"
     
     # --- 3. 正常区域判断 (30 <= RSI <= 70) ---
     if ratio > 1.0:
-        return "S (完美主升)", "低波稳健大涨，最佳持有状态", "#00CC00" # 绿色
+        return "S (完美主升)", "低波稳健大涨，最佳持有状态", "#00CC00"
     elif ratio > 0.5:
-        return "A (稳健上涨)", "趋势健康，安心持有", "#90EE90" # 浅绿
+        return "A (稳健上涨)", "趋势健康，安心持有", "#90EE90"
     elif ratio > 0:
-        return "D (震荡整理)", "上涨乏力或波动过大，观望", "#808080" # 灰色
+        return "D (震荡整理)", "上涨乏力或波动过大，观望", "#808080"
     else:
-        return "D- (弱势调整)", "负动量，趋势向下", "#D3D3D3" # 浅灰
+        return "D- (弱势调整)", "负动量，趋势向下", "#D3D3D3"
 
 def analyze_data(df, date_col, price_col):
     """执行所有指标计算"""
@@ -68,6 +66,9 @@ def analyze_data(df, date_col, price_col):
     prices = df[price_col]
     dates = df[date_col]
     
+    # 【修复点】显式创建 '当前价格' 列，方便后续统一调用
+    df['当前价格'] = prices
+    
     # 1. 基础涨跌幅
     df['当前涨跌幅(%)'] = prices.pct_change() * 100
     
@@ -75,14 +76,13 @@ def analyze_data(df, date_col, price_col):
     df['20日涨幅(%)'] = (prices / prices.shift(20) - 1) * 100
     df['60日涨幅(%)'] = (prices / prices.shift(60) - 1) * 100
     
-    # 3. 波动率 (未年化，用于比率计算，保持量纲一致)
+    # 3. 波动率 (未年化)
     daily_ret = prices.pct_change()
     df['20日波动率(%)'] = daily_ret.rolling(window=20).std() * 100
     
     # 4. 动量 - 波动率比率
     momentum = df['20日涨幅(%)'] / 100
     volatility = df['20日波动率(%)'] / 100
-    # 处理分母为0的情况
     df['动量-波动率比率'] = np.where(volatility != 0, momentum / volatility, 0)
     
     # 5. RSI
@@ -91,7 +91,7 @@ def analyze_data(df, date_col, price_col):
     # 6. 价格百分位
     df['价格百分位'] = (prices.expanding().rank(pct=True) * 100).round(2)
     
-    # 7. YTD (年初至今)
+    # 7. YTD
     df['year'] = dates.dt.year
     first_in_year = df.groupby('year').head(1).index
     df['ytd_start'] = np.nan
@@ -100,7 +100,7 @@ def analyze_data(df, date_col, price_col):
     df['YTD涨幅(%)'] = (prices / df['ytd_start'] - 1) * 100
     df.drop(columns=['year', 'ytd_start'], inplace=True)
     
-    # 8. 202409TD (2024-09-30 至今)
+    # 8. 202409TD
     target_date = pd.Timestamp('2024-09-30')
     base_mask = dates >= target_date
     if base_mask.any():
@@ -112,8 +112,7 @@ def analyze_data(df, date_col, price_col):
     else:
         df['202409TD涨幅(%)'] = np.nan
         
-    # 9. 【核心】应用综合评级
-    # 使用 apply 逐行计算评级，返回 (等级，描述，颜色)
+    # 9. 应用综合评级
     ratings = df.apply(lambda row: calculate_rating(row['RSI(14)'], row['动量-波动率比率']), axis=1)
     df['综合评级'] = [r[0] for r in ratings]
     df['评级描述'] = [r[1] for r in ratings]
@@ -122,11 +121,11 @@ def analyze_data(df, date_col, price_col):
     return df
 
 def plot_chart(df, date_col, price_col):
-    """绘制三图组合：净值 + RSI + 动量比率"""
+    """绘制三图组合"""
     fig, ax = plt.subplots(3, 1, figsize=(14, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1, 1]})
     
-    # 图1: 净值走势
-    ax[0].plot(df[date_col], df[price_col], label='净值', color='#1f77b4', linewidth=1.5)
+    # 图1: 净值 (使用统一的 '当前价格' 列)
+    ax[0].plot(df[date_col], df['当前价格'], label='净值', color='#1f77b4', linewidth=1.5)
     ax[0].set_title('净值走势', fontsize=14, fontweight='bold')
     ax[0].legend(loc='upper left')
     ax[0].grid(True, linestyle='--', alpha=0.6)
@@ -151,7 +150,6 @@ def plot_chart(df, date_col, price_col):
     ax[2].grid(True, linestyle='--', alpha=0.6)
     ax[2].set_ylabel('Ratio')
     
-    # 时间轴格式化
     ax[2].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
     ax[2].xaxis.set_major_locator(mdates.MonthLocator(interval=6))
     plt.xticks(rotation=45)
@@ -167,7 +165,6 @@ st.markdown("""
 特别优化：**严防超卖区“接飞刀”风险**。
 """)
 
-# 侧边栏
 with st.sidebar:
     st.header("📂 文件上传")
     uploaded_file = st.file_uploader("选择 CSV/Excel 文件", type=['csv', 'xlsx', 'xls'])
@@ -177,31 +174,29 @@ with st.sidebar:
     ### 📊 评级标准说明
     
     #### 🟢 买入/持有区
-    - **S 级**: 完美主升浪 (低波大涨)
+    - **S 级**: 完美主升浪
     - **A 级**: 稳健上涨
-    - **E+ 级**: 黄金坑 (超卖且止跌)
+    - **E+ 级**: 黄金坑
     
     #### ⚠️ 观察/警示区
-    - **C 级**: 疯狂逼空 (超买但极强)
-    - **E 级**: 超卖企稳 (跌势放缓)
+    - **C 级**: 疯狂逼空
+    - **E 级**: 超卖企稳
     - **D 级**: 震荡整理
     
     #### 🔴 卖出/禁止区
-    - **B 级**: 高风险 (超买且剧烈波动)
-    - **E- 级**: 阴跌中 (超卖但持续跌)
-    - **E-- 级**: 接飞刀 (超卖且暴跌，**严禁抄底**)
+    - **B 级**: 高风险
+    - **E- 级**: 阴跌中
+    - **E-- 级**: 接飞刀 (**严禁抄底**)
     """)
 
 if uploaded_file is not None:
     try:
-        # 1. 读取文件
         with st.spinner('正在读取数据...'):
             if uploaded_file.name.endswith('.csv'):
                 df_raw = pd.read_csv(uploaded_file)
             else:
                 df_raw = pd.read_excel(uploaded_file)
         
-        # 2. 自动识别列
         date_col = None
         price_col = None
         for col in df_raw.columns:
@@ -215,18 +210,14 @@ if uploaded_file is not None:
             st.error(f"❌ 无法自动识别列。检测到的列名：{list(df_raw.columns)}")
             st.stop()
             
-        # 3. 执行计算
         with st.spinner('正在计算综合评级...'):
             df_result = analyze_data(df_raw.copy(), date_col, price_col)
         
-        # 4. 展示最新评级卡片 (核心亮点)
+        # 展示最新评级卡片
         st.subheader("🏆 当前综合评级")
         latest = df_result.iloc[-1]
-        
-        # 获取颜色
         color_hex = latest['评级颜色']
         
-        # 自定义 CSS 美化评级框
         st.markdown(f"""
         <div style="padding: 20px; border-radius: 10px; background-color: {color_hex}20; border-left: 5px solid {color_hex}; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
             <h2 style="margin: 0; color: {color_hex}; font-size: 32px;">🚩 {latest['综合评级']}</h2>
@@ -234,37 +225,31 @@ if uploaded_file is not None:
             <p style="font-size: 14px; color: #666; margin-top: 15px; border-top: 1px solid #ddd; padding-top: 10px;">
                 <strong>RSI:</strong> {latest['RSI(14)']:.2f} &nbsp;|&nbsp; 
                 <strong>动量比率:</strong> {latest['动量-波动率比率']:.3f} &nbsp;|&nbsp; 
-                <strong>当前价格:</strong> {latest[price_col]:.4f}
+                <strong>当前价格:</strong> {latest['当前价格']:.4f}
             </p>
         </div>
         """, unsafe_allow_html=True)
         
-        # 辅助指标行
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("RSI(14)", f"{latest['RSI(14)']:.2f}")
         c2.metric("动量-波动率比率", f"{latest['动量-波动率比率']:.3f}")
         c3.metric("20日涨幅", f"{latest['20日涨幅(%)']:.2f}%")
         c4.metric("价格百分位", f"{latest['价格百分位']:.1f}%")
         
-        # 5. 展示图表
         st.subheader("📉 技术走势与评级历史")
         fig = plot_chart(df_result, date_col, price_col)
         st.pyplot(fig)
         
-        # 6. 数据表格 (突出显示评级)
         with st.expander("📋 查看完整历史数据 (含每日评级)"):
-            # 格式化显示
+            # 【修复点】现在 '当前价格' 列肯定存在了
             display_df = df_result[['日期', '当前价格', '综合评级', '评级描述', 'RSI(14)', '动量-波动率比率', '20日涨幅(%)']].copy()
             display_df['日期'] = display_df['日期'].dt.strftime('%Y-%m-%d')
-            # 倒序排列，最新的在上面
             st.dataframe(display_df.sort_index(ascending=False), use_container_width=True)
             
-        # 7. 下载按钮
         st.subheader("💾 导出结果")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_result.round(4).to_excel(writer, sheet_name='每日完整数据', index=False)
-            # 添加一个摘要 Sheet
             latest_df = df_result.iloc[-1:].copy()
             latest_df.to_excel(writer, sheet_name='最新摘要', index=False)
             
@@ -282,10 +267,3 @@ if uploaded_file is not None:
         st.exception(e)
 else:
     st.info("👆 请在左侧上传基金净值文件开始智能评级。")
-    st.markdown("""
-    ### 💡 使用指南
-    1. 准备包含 **日期** 和 **累计净值** (或收盘价) 的 CSV/Excel 文件。
-    2. 上传文件后，系统将自动计算 RSI、波动率及综合评级。
-    3. 重点关注 **S/A 级** (买入/持有) 和 **E+ 级** (黄金坑)。
-    4. **警惕 E-- 级**，即使 RSI 很低也不要盲目抄底！
-    """)
