@@ -181,7 +181,7 @@ if uploaded_file is not None:
     try:
         with st.spinner('正在读取数据...'):
             if uploaded_file.name.endswith('.csv'):
-                df_raw = pd.read_csv(uploaded_file)
+                df_raw = pd.read_csv(uploaded_file, encoding='utf-8')
             else:
                 df_raw = pd.read_excel(uploaded_file)
         
