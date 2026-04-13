@@ -100,19 +100,7 @@ def analyze_data(df, date_col, price_col):
     df['YTD涨幅(%)'] = (prices / df['ytd_start'] - 1) * 100
     df.drop(columns=['year', 'ytd_start'], inplace=True)
     
-    # 8. 202409TD
-    target_date = pd.Timestamp('2024-09-30')
-    base_mask = dates >= target_date
-    if base_mask.any():
-        base_idx = base_mask.argmax()
-        base_price_val = prices.iloc[base_idx]
-        base_series = pd.Series(np.nan, index=df.index)
-        base_series.iloc[base_idx:] = base_price_val
-        df['202409TD涨幅(%)'] = (prices / base_series - 1) * 100
-    else:
-        df['202409TD涨幅(%)'] = np.nan
-        
-    # 9. 应用综合评级
+    # 8. 应用综合评级
     ratings = df.apply(lambda row: calculate_rating(row['RSI(14)'], row['动量-波动率比率']), axis=1)
     df['综合评级'] = [r[0] for r in ratings]
     df['评级描述'] = [r[1] for r in ratings]
@@ -203,7 +191,7 @@ if uploaded_file is not None:
             col_str = str(col).lower()
             if '日期' in col_str or 'date' in col_str:
                 date_col = col
-            if any(k in col_str for k in ['净值', '收盘', 'price', 'nav', '累计']):
+            if any(k in col_str for k in ['净值', '收盘', 'price', 'nav', '累计', 'close']):
                 price_col = col
         
         if not date_col or not price_col:
